@@ -1,194 +1,102 @@
 const express = require('express');
 const router = express.Router();
-
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const { spawn } = require('child_process');
-
 const Book = require('../models/Book');
 
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'uploads/');
-  },
-
-  filename: (req, file, cb) => {
-    cb(
-      null,
-      `${uuidv4()}${path.extname(file.originalname)}`
-    );
-  }
+  destination: (req, file, cb) => cb(null, 'uploads/'),
+  filename: (req, file, cb) => cb(null, `${uuidv4()}${path.extname(file.originalname)}`)
 });
 
 const upload = multer({ storage });
 
 router.post('/upload-pdf', upload.single('pdfFile'), async (req, res) => {
-
   try {
+    if (!req.file) return res.status(400).json({ error: 'No PDF uploaded' });
 
-    if (!req.file) {
-      return res.status(400).json({
-        error: 'No PDF uploaded'
-      });
-    }
+    const pdfPath = req.file.path;
+    const docxName = `${uuidv4()}.docx`;
+    const docxPath = path.join('uploads', docxName);
 
-    const python = spawn('python3', [
-      'python/extractor.py',
-      req.file.path
-    ]);
+    console.log('Converting PDF to DOCX...');
 
-    let result = '';
-    let error = '';
+    const converter = spawn('python3', ['python/pdf_to_docx.py', pdfPath, docxPath]);
 
-    python.stdout.on('data', (data) => {
-      result += data.toString();
-    });
+    let converterOutput = '';
+    let converterError = '';
 
-    python.stderr.on('data', (data) => {
-      error += data.toString();
-    });
+    converter.stdout.on('data', (data) => { converterOutput += data.toString(); });
+    converter.stderr.on('data', (data) => { converterError += data.toString(); });
 
-    python.on('close', async () => {
+    converter.on('close', async (code) => {
+      console.log('Converter output:', converterOutput);
+      if (converterError) console.log('Converter warnings:', converterError);
 
-      if (error) {
-
-        console.error(error);
-
-        return res.status(500).json({
-          error: 'Python extraction failed'
-        });
-
+      // Check SUCCESS even if there were warnings
+      if (!converterOutput.includes('SUCCESS')) {
+        return res.status(500).json({ error: 'PDF conversion failed' });
       }
-
-      let extracted;
 
       try {
+        const userId = req.body.userId || '000000000000000000000001';
+        const title = req.file.originalname.replace('.pdf', '');
 
-        extracted = JSON.parse(result);
-
-      } catch (parseError) {
-
-        console.error('Python Output:', result);
-
-        return res.status(500).json({
-          error: 'Invalid JSON returned from extractor'
+        const newBook = new Book({
+          userId,
+          title,
+          pdfUrl: pdfPath,
+          docxUrl: `uploads/${docxName}`,
+          status: 'ready',
+          totalPages: 0,
+          bookContent: []
         });
 
+        await newBook.save();
+        console.log('Book saved:', newBook._id);
+
+        res.status(201).json({
+          success: true,
+          bookId: newBook._id,
+          docxUrl: newBook.docxUrl,
+          title: newBook.title
+        });
+
+      } catch (dbErr) {
+        console.error('DB save error:', dbErr.message);
+        res.status(500).json({ error: 'Failed to save book to database' });
       }
-
-      const bookContent = [];
-
-      extracted.pages.forEach(page => {
-
-        page.blocks.forEach(block => {
-
-          bookContent.push({
-
-            type: block.type,
-
-            content: block.text || '',
-
-            pageNumber: page.pageNumber,
-
-            fontSize: block.fontSize || 0,
-
-            wordCount: block.wordCount || 0,
-
-            yPosition: block.y || 0,
-
-            xPosition: block.x || 0,
-
-            width: block.width || 0
-
-          });
-
-        });
-
-      });
-
-      console.log(
-        'Pages:',
-        extracted.totalPages,
-        'Blocks:',
-        bookContent.length
-      );
-
-      const newBook = new Book({
-
-        userId:
-          req.body.userId ||
-          '6a13f2fcbe44e159961f27b2',
-
-        title:
-          req.file.originalname.replace('.pdf', ''),
-
-        pdfUrl: req.file.path,
-
-        totalPages: extracted.totalPages,
-
-        status: 'ready',
-
-        bookContent
-
-      });
-
-      await newBook.save();
-
-      console.log('Saved Book:', newBook._id);
-
-      res.status(201).json({
-
-        success: true,
-
-        bookId: newBook._id,
-
-        pages: extracted.totalPages,
-
-        pdfUrl: newBook.pdfUrl
-
-      });
-
     });
 
   } catch (err) {
-
     console.error(err);
-
-    res.status(500).json({
-      error: 'Upload failed'
-    });
-
+    res.status(500).json({ error: 'Upload failed' });
   }
+});
 
+router.get('/user/:userId', async (req, res) => {
+  try {
+    const books = await Book.find({ userId: req.params.userId })
+      .select('title createdAt docxUrl status')
+      .sort({ createdAt: -1 });
+    res.json(books);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch books' });
+  }
 });
 
 router.get('/:id', async (req, res) => {
-
   try {
-
     const book = await Book.findById(req.params.id);
-
-    if (!book) {
-
-      return res.status(404).json({
-        error: 'Book not found'
-      });
-
-    }
-
+    if (!book) return res.status(404).json({ error: 'Book not found' });
     res.json(book);
-
   } catch (err) {
-
     console.error(err);
-
-    res.status(500).json({
-      error: 'Failed to fetch book'
-    });
-
+    res.status(500).json({ error: 'Failed to fetch book' });
   }
-
 });
 
 module.exports = router;

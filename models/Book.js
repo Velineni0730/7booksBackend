@@ -24,6 +24,11 @@ const bookSchema = new mongoose.Schema({
     default: null
   },
 
+  docxUrl: {
+    type: String,
+    default: null
+  },
+
   bookContent: [
     {
       type: {
@@ -92,7 +97,11 @@ const bookSchema = new mongoose.Schema({
 
   status: {
     type: String,
-    enum: ['processing', 'ready', 'failed'],
+    enum: [
+      'processing',
+      'ready',
+      'failed'
+    ],
     default: 'processing'
   },
 
@@ -107,6 +116,7 @@ const bookSchema = new mongoose.Schema({
   },
 
   preferences: {
+
     zoomLevel: {
       type: Number,
       default: 1
@@ -151,6 +161,7 @@ const bookSchema = new mongoose.Schema({
       type: String,
       default: '#111827'
     }
+
   },
 
   bookmarks: [
@@ -163,4 +174,7 @@ const bookSchema = new mongoose.Schema({
   timestamps: true
 });
 
-module.exports = mongoose.model('Book', bookSchema);
+module.exports = mongoose.model(
+  'Book',
+  bookSchema
+);
