@@ -1,3 +1,5 @@
+require("dotenv").config();
+
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -23,9 +25,12 @@ app.get('/health', (req, res) => {
 });
 
 // ─── MongoDB connection ─────────────────────────────────────────────────────
-const uri = process.env.MONGO_URI ||
-  "mongodb+srv://bvarsh0730_db_user:123@cluster0.bojqgzz.mongodb.net/7books?retryWrites=true&w=majority&appName=Cluster0";
+const uri = process.env.MONGO_URI;
 
+if (!uri) {
+  console.error("❌ MONGO_URI is not set in .env");
+  process.exit(1);
+}
 const MONGO_OPTS = {
   serverSelectionTimeoutMS: 30000,   // wait up to 30s to find a server
   socketTimeoutMS:          60000,   // how long a socket can be idle
